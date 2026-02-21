@@ -38,8 +38,17 @@ export class MemorySystem {
         active INTEGER DEFAULT 1
       );
       
+      CREATE TABLE IF NOT EXISTS conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      
       CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
       CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id);
+      CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
     `);
 
     console.log('📚 Memory system initialized');
@@ -136,6 +145,49 @@ export class MemorySystem {
       }
       this.db.prepare('UPDATE reminders SET next_run = ? WHERE id = ?').run(next.toISOString(), id);
     }
+  }
+
+  // Conversation persistence
+  async saveConversation(userId: string, role: 'user' | 'assistant', content: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const stmt = this.db.prepare(
+      'INSERT INTO conversations (user_id, role, content) VALUES (?, ?, ?)'
+    );
+    stmt.run(userId, role, content);
+    
+    // Prune old conversations after saving
+    await this.pruneConversations(userId);
+  }
+
+  async loadConversationHistory(userId: string, limit: number = 50): Promise<Array<{ role: string; content: string }>> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const stmt = this.db.prepare(`
+      SELECT role, content FROM conversations 
+      WHERE user_id = ? 
+      ORDER BY created_at ASC 
+      LIMIT ?
+    `);
+    const results = stmt.all(userId, limit) as Array<{ role: string; content: string }>;
+    return results;
+  }
+
+  async pruneConversations(userId: string, keepLast: number = 50): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    // Delete all but the last `keepLast` conversations for this user
+    const stmt = this.db.prepare(`
+      DELETE FROM conversations 
+      WHERE user_id = ? 
+      AND id NOT IN (
+        SELECT id FROM conversations 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT ?
+      )
+    `);
+    stmt.run(userId, userId, keepLast);
   }
 
   close(): void {
