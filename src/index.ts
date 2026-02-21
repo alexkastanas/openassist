@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { getConfig } from './config.js';
 import { Gateway } from './gateway/server.js';
 import { TelegramChannel } from './channels/telegram.js';
+import { DiscordChannel } from './channels/discord.js';
 import { Agent } from './agent/runtime.js';
 import { MemorySystem } from './memory/system.js';
 import { ReminderService } from './reminders/service.js';
@@ -34,18 +35,31 @@ async function main() {
   const agent = new Agent(memory, tools);
   logger.info('✅ Agent runtime ready');
 
-  // Initialize channels
+  // Initialize Telegram channel
   const telegram = new TelegramChannel(agent);
   await telegram.initialize();
   logger.info('✅ Telegram bot ready');
 
-  // Start reminder service and connect to telegram
+  // Initialize Discord channel (optional)
+  let discord: DiscordChannel | null = null;
+  if (process.env.DISCORD_BOT_TOKEN) {
+    discord = new DiscordChannel(agent);
+    await discord.initialize();
+    logger.info('✅ Discord bot ready');
+  } else {
+    logger.info('⏭️ Discord disabled (no token)');
+  }
+
+  // Start reminder service and connect to channels
   const reminders = new ReminderService(agent, memory);
   reminders.setTelegramChannel(telegram);
+  if (discord) {
+    reminders.setDiscordChannel(discord);
+  }
   reminders.start();
   logger.info('✅ Reminder service started');
 
-  // Pass reminder service to telegram for /remind commands
+  // Pass reminder service to channels for /remind commands
   telegram.setReminderService(reminders);
 
   // Start health check server using config

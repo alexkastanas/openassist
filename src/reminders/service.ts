@@ -183,6 +183,7 @@ export class ReminderService {
   private memory: MemorySystem;
   private agent: Agent;
   private telegramChannel: { sendMessage: (userId: string, message: string) => Promise<void> } | null = null;
+  private discordChannel: { sendMessage: (userId: string, message: string) => Promise<void> } | null = null;
   private task: cron.ScheduledTask | null = null;
 
   constructor(agent: Agent, memory?: MemorySystem) {
@@ -195,6 +196,13 @@ export class ReminderService {
    */
   setTelegramChannel(telegram: { sendMessage: (userId: string, message: string) => Promise<void> }): void {
     this.telegramChannel = telegram;
+  }
+
+  /**
+   * Set the Discord channel for delivery
+   */
+  setDiscordChannel(discord: { sendMessage: (userId: string, message: string) => Promise<void> }): void {
+    this.discordChannel = discord;
   }
 
   async start(): Promise<void> {
@@ -236,6 +244,16 @@ export class ReminderService {
         return;
       } catch (error) {
         console.error('Telegram delivery failed:', error);
+      }
+    }
+    
+    // Try Discord
+    if (this.discordChannel) {
+      try {
+        await this.discordChannel.sendMessage(reminder.user_id, message);
+        return;
+      } catch (error) {
+        console.error('Discord delivery failed:', error);
       }
     }
     
