@@ -1,0 +1,36 @@
+{
+  "name": "openassist",
+  "version": "1.0.0",
+  "description": "Simplified OpenClaw for non-technical users - MVP",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "telegraf": "^4.15.0",
+    "ws": "^8.16.0",
+    "openai": "^4.24.0",
+    "better-sqlite3": "^9.3.0",
+    "vectordb": "^0.4.4",
+    "node-cron": "^3.0.3",
+    "uuid": "^9.0.1",
+    "p-queue": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.10",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node-cron": "^3.0.11",
+    "@types/uuid": "^9.0.7",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.0",
+    "vitest": "^1.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
