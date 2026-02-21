@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { getConfig } from './config.js';
 import { Gateway } from './gateway/server.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Agent } from './agent/runtime.js';
@@ -12,11 +13,11 @@ import {
   setupGracefulShutdown,
 } from './monitoring.js';
 
-const PORT = parseInt(process.env.PORT || '3000');
-const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '3001');
+// Get config - this will fail fast if required env vars are missing
+const config = getConfig();
 
 async function main() {
-  // Validate environment variables before starting
+  // Validate environment variables before starting (now uses config internally)
   validateEnvironment();
 
   const startTime = Date.now();
@@ -47,8 +48,8 @@ async function main() {
   // Pass reminder service to telegram for /remind commands
   telegram.setReminderService(reminders);
 
-  // Start health check server
-  const healthServer = new HealthCheckServer(HEALTH_PORT);
+  // Start health check server using config
+  const healthServer = new HealthCheckServer(config.HEALTH_PORT);
   healthServer.setDependencies(memory, agent);
   await healthServer.start();
 
@@ -61,7 +62,7 @@ async function main() {
 
   const uptime = Date.now() - startTime;
   logger.info(`🎉 OpenAssist is running! (started in ${uptime}ms)`);
-  logger.info(`Health checks available at http://localhost:${HEALTH_PORT}/health and /ready`);
+  logger.info(`Health checks available at http://localhost:${config.HEALTH_PORT}/health and /ready`);
 }
 
 main().catch((error) => {
