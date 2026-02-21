@@ -1,17 +1,70 @@
 version: '3.8'
 
+# =============================================================================
+# OpenAssist Docker Compose Configuration
+# =============================================================================
+# Usage:
+#   docker-compose up -d          # Start services
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop services
+#   docker-compose down -v       # Stop and remove volumes
+# =============================================================================
+
 services:
   openassist:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openassist
     ports:
-      - "3000:3000"
+      - "${OPENASSIST_PORT:-3000}:3000"
     env_file:
       - .env
+    # Volume for SQLite database persistence
     volumes:
-      - ./data:/app/data
+      - openassist_data:/app/data
+    # Restart policy: restart unless explicitly stopped
     restart: unless-stopped
+    # Health check configuration
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
+    # Log configuration with rotation
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Environment variables for production
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DO_NOT_TRACK=1
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  # SQLite database persistence
+  openassist_data:
+    driver: local
+
+# =============================================================================
+# Environment Variable Documentation
+# =============================================================================
+# Required environment variables (set in .env file):
+# --------------------------------------------------
+# OPENAI_API_KEY        - OpenAI API key for AI functionality
+# TELEGRAM_BOT_TOKEN   - Telegram bot token from @BotFather
+# CLAW_URL             - URL to OpenClaw Gateway (default: http://host.docker.internal:8080)
+#
+# Optional environment variables:
+# --------------------------------------------------
+# OPENASSIST_PORT      - Port to expose (default: 3000)
+# NODE_ENV             - Environment (production/development)
+# LOG_LEVEL            - Logging level (error/warn/info/debug)
+# DATABASE_PATH        - Path to SQLite database (default: /app/data/openassist.db)
+# VECTOR_DB_PATH       - Path to vector database (default: /app/data/vector.db)
