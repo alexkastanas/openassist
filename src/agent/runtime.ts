@@ -71,7 +71,7 @@ export class Agent {
         const toolResults: { name: string; content: string }[] = [];
 
         for (const call of choice.message.tool_calls) {
-          const result = await this.executeTool(call.function.name, call.function.arguments);
+          const result = await this.executeTool(userId, call.function.name, call.function.arguments);
           toolResults.push({ name: call.function.name, content: result });
         }
 
@@ -109,10 +109,10 @@ export class Agent {
     }
   }
 
-  private async executeTool(name: string, argsStr: string): Promise<string> {
+  private async executeTool(userId: string, name: string, argsStr: string): Promise<string> {
     try {
       const args = JSON.parse(argsStr);
-      return await this.tools.execute(name, args, this.memory);
+      return await this.tools.execute(name, args, this.memory, userId);
     } catch (error) {
       console.error(`Tool ${name} error:`, error);
       return JSON.stringify({ error: 'Tool execution failed' });
