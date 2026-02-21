@@ -38,15 +38,14 @@ async function main() {
   await telegram.initialize();
   logger.info('✅ Telegram bot ready');
 
-  // Start gateway server
-  const gateway = new Gateway(agent, PORT);
-  await gateway.start();
-  logger.info(`✅ Gateway listening on port ${PORT}`);
-
-  // Start reminder service
-  const reminders = new ReminderService(agent);
+  // Start reminder service and connect to telegram
+  const reminders = new ReminderService(agent, memory);
+  reminders.setTelegramChannel(telegram);
   reminders.start();
   logger.info('✅ Reminder service started');
+
+  // Pass reminder service to telegram for /remind commands
+  telegram.setReminderService(reminders);
 
   // Start health check server
   const healthServer = new HealthCheckServer(HEALTH_PORT);

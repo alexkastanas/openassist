@@ -11,6 +11,15 @@ interface VectorRecord {
   embedding: number[];
 }
 
+export interface Reminder {
+  id: number;
+  user_id: string;
+  message: string;
+  schedule: 'once' | 'daily' | 'weekly';
+  next_run: string;
+  active: boolean;
+}
+
 export class MemorySystem {
   private db: Database.Database | null = null;
   private dataDir: string;
@@ -269,6 +278,32 @@ export class MemorySystem {
       WHERE active = 1 AND next_run <= ?
     `);
     return stmt.all(now) as any[];
+  }
+
+  async getRemindersByUser(userId: string): Promise<Reminder[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const stmt = this.db.prepare(`
+      SELECT id, user_id, message, schedule, next_run, active 
+      FROM reminders 
+      WHERE user_id = ? 
+      ORDER BY next_run ASC
+    `);
+    const results = stmt.all(userId) as any[];
+    return results.map(r => ({
+      id: r.id,
+      user_id: r.user_id,
+      message: r.message,
+      schedule: r.schedule,
+      next_run: r.next_run,
+      active: Boolean(r.active)
+    }));
+  }
+
+  async deactivateReminder(id: number): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    this.db.prepare('UPDATE reminders SET active = 0 WHERE id = ?').run(id);
   }
 
   async completeReminder(id: number): Promise<void> {
