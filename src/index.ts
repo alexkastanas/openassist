@@ -13,6 +13,7 @@ import {
   HealthCheckServer,
   setupGracefulShutdown,
 } from './monitoring.js';
+import './dashboard/server.js';
 
 // Get config - this will fail fast if required env vars are missing
 const config = getConfig();
