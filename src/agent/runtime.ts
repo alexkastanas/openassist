@@ -111,7 +111,12 @@ export class Agent {
 
   private async executeTool(name: string, argsStr: string): Promise<string> {
     try {
-      const args = JSON.parse(argsStr);
+      let args;
+      try {
+        args = JSON.parse(argsStr);
+      } catch {
+        return JSON.stringify({ error: 'Invalid tool arguments' });
+      }
       return await this.tools.execute(name, args, this.memory);
     } catch (error) {
       console.error(`Tool ${name} error:`, error);
