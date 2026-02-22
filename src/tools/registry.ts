@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { MemorySystem } from '../memory/system.js';
 
 export interface ToolResult {
@@ -16,11 +17,48 @@ interface ToolDefinition {
   };
 }
 
+interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number; // milliseconds
+  windowLabel: 'hour' | 'day';
+}
+
+// Rate limit configuration per tool
+const RATE_LIMITS: Record<string, RateLimitConfig> = {
+  web_search: { maxRequests: 20, windowMs: 60 * 60 * 1000, windowLabel: 'hour' },
+  web_fetch: { maxRequests: 30, windowMs: 60 * 60 * 1000, windowLabel: 'hour' },
+  remember: { maxRequests: 100, windowMs: 24 * 60 * 60 * 1000, windowLabel: 'day' },
+  // Other tools are unlimited (not in this map)
+};
+
 export class ToolRegistry {
   private tools: Map<string, (args: Record<string, unknown>, memory: MemorySystem) => Promise<string>> = new Map();
+  private db: Database.Database;
 
-  constructor() {
+  constructor(dbPath?: string) {
+    // Initialize SQLite database
+    const actualPath = dbPath || process.cwd() + '/data/tools.db';
+    this.db = new Database(actualPath);
+    this.initDatabase();
     this.registerDefaultTools();
+  }
+
+  private initDatabase() {
+    // Create tool_usage table if it doesn't exist
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tool_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        used_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Create index for faster queries
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tool_usage_user_tool 
+      ON tool_usage(user_id, tool_name, used_at)
+    `);
   }
 
   private registerDefaultTools() {
@@ -93,7 +131,7 @@ export class ToolRegistry {
         },
         required: ['content']
       }
-    }, async (Information to rememberargs, memory) => {
+    }, async (args, memory) => {
       const content = args.content as string;
       await memory.add(content);
       return 'Saved to memory';
@@ -145,7 +183,6 @@ export class ToolRegistry {
   }
 
   getDefinitions(): ToolDefinition[] {
-    const defs: ToolDefinition[] = [];
     // Return built-in tool definitions
     return [
       {
@@ -181,11 +218,126 @@ export class ToolRegistry {
     ];
   }
 
-  async execute(name: string, args: Record<string, unknown>, memory: MemorySystem): Promise<string> {
+  /**
+   * Check if a user is rate limited for a specific tool
+   * @returns { limit: number, remaining: number, resetAt: Date | null, isLimited: boolean }
+   */
+  checkRateLimit(userId: string, toolName: string): { limit: number; remaining: number; resetAt: Date | null; isLimited: boolean; error?: string } {
+    const config = RATE_LIMITS[toolName];
+    
+    // If no rate limit config exists for this tool, it's unlimited
+    if (!config) {
+      return { limit: -1, remaining: -1, resetAt: null, isLimited: false };
+    }
+
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - config.windowMs);
+
+    // Count usage in the current window
+    const stmt = this.db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM tool_usage 
+      WHERE user_id = ? AND tool_name = ? AND used_at >= ?
+    `);
+    
+    const result = stmt.get(userId, toolName, windowStart.toISOString()) as { count: number };
+    const used = result.count;
+    const remaining = Math.max(0, config.maxRequests - used);
+    const resetAt = new Date(now.getTime() + config.windowMs);
+    const isLimited = used >= config.maxRequests;
+
+    const windowLabel = config.windowLabel;
+    const error = isLimited 
+      ? `Rate limit exceeded for ${toolName}. Limit: ${config.maxRequests} per ${windowLabel}. Try again later.`
+      : undefined;
+
+    return {
+      limit: config.maxRequests,
+      remaining,
+      resetAt,
+      isLimited,
+      error
+    };
+  }
+
+  /**
+   * Record tool usage in the database
+   */
+  private recordUsage(userId: string, toolName: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO tool_usage (user_id, tool_name, used_at)
+      VALUES (?, ?, datetime('now'))
+    `);
+    stmt.run(userId, toolName);
+  }
+
+  async execute(name: string, args: Record<string, unknown>, memory: MemorySystem, userId?: string): Promise<string> {
     const handler = this.tools.get(name);
     if (!handler) {
       return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
-    return await handler(args, memory);
+
+    // Check rate limit if userId is provided
+    if (userId) {
+      const rateLimit = this.checkRateLimit(userId, name);
+      if (rateLimit.isLimited) {
+        return JSON.stringify({ 
+          error: rateLimit.error,
+          rateLimited: true,
+          limit: rateLimit.limit,
+          remaining: 0,
+          resetAt: rateLimit.resetAt?.toISOString()
+        });
+      }
+    }
+
+    // Execute the tool
+    const result = await handler(args, memory);
+
+    // Record usage after successful execution
+    if (userId) {
+      this.recordUsage(userId, name);
+    }
+
+    return result;
+  }
+
+  /**
+   * Get usage statistics for a user
+   */
+  getUsageStats(userId: string, toolName?: string): { tool_name: string; count: number; window: string }[] {
+    const now = new Date();
+    const stats: { tool_name: string; count: number; window: string }[] = [];
+
+    const toolsToCheck = toolName && RATE_LIMITS[toolName] 
+      ? { [toolName]: RATE_LIMITS[toolName] } 
+      : RATE_LIMITS;
+    
+    for (const [tool, config] of Object.entries(toolsToCheck)) {
+      if (!config) continue;
+      
+      const windowStart = new Date(now.getTime() - config.windowMs);
+      const stmt = this.db.prepare(`
+        SELECT COUNT(*) as count 
+        FROM tool_usage 
+        WHERE user_id = ? AND tool_name = ? AND used_at >= ?
+      `);
+      
+      const result = stmt.get(userId, tool, windowStart.toISOString()) as { count: number };
+      stats.push({
+        tool_name: tool,
+        count: result.count,
+        window: config.windowLabel
+      });
+    }
+
+    return stats;
+  }
+
+  /**
+   * Close database connection
+   */
+  close(): void {
+    this.db.close();
   }
 }
